@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Funky Kanban Todo App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Funky animated background */
+    body {
+      min-height: 100vh;
+      background: radial-gradient(circle at 10% 10%, #ff7b7b55, transparent 15%),
+                  radial-gradient(circle at 90% 80%, #7bffd955, transparent 12%),
+                  radial-gradient(circle at 50% 50%, #7bbcff55, transparent 20%),
+                  linear-gradient(135deg, #111827, #0b1220 60%);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Floating blobs */
+    .blob {
+      position: absolute;
+      filter: blur(60px);
+      opacity: 0.45;
+      transform: translate(-50%, -50%);
+      mix-blend-mode: screen;
+      animation: floaty 10s ease-in-out infinite;
+      z-index: 0;
+    }
+    .blob.x1 { left: 10%; top: 20%; width: 420px; height: 420px; background: #ff6b6b; }
+    .blob.x2 { left: 80%; top: 10%; width: 320px; height: 320px; background: #6bffda; animation-duration: 14s; }
+    .blob.x3 { left: 80%; top: 75%; width: 500px; height: 500px; background: #9b6bff; animation-duration: 12s; }
+    @keyframes floaty { 0% { transform: translate(-50%,-50%) translateY(0);} 50%{ transform: translate(-50%,-50%) translateY(-30px);} 100%{ transform: translate(-50%,-50%) translateY(0);} }
+
+    /* Glass card shadow */
+    .glass {
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(8px) saturate(120%);
+    }
+
+    /* Kanban column backgrounds with aesthetic colors */
+    .kanban-backlog {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .kanban-progress {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05));
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .kanban-review {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+      border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+
+    .kanban-done {
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05));
+      border: 1px solid rgba(34, 197, 94, 0.2);
+    }
+
+    /* drag placeholder effect */
+    .drop-target {
+      transition: background-color 0.18s ease, transform 0.12s ease;
+    }
+    .drop-target.dragover {
+      background: rgba(255,255,255,0.03);
+      transform: translateY(-4px);
+    }
+
+    /* Custom select dropdown styling */
+    select.glass {
+      color: #e2e8f0;
+    }
+    
+    select.glass option {
+      background: rgba(15, 23, 42, 0.95);
+      color: #e2e8f0;
+      padding: 8px 12px;
+    }
+
+    /* tiny helpers */
+    .no-select { user-select: none; }
+  </style>
+</head>
+<body class="text-slate-100">
+  <div class="blob x1"></div>
+  <div class="blob x2"></div>
+  <div class="blob x3"></div>
+
+  <main class="relative z-10 min-h-screen p-6 lg:p-12">
+    <header class="max-w-7xl mx-auto flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight">Auroro Kanban — <span class="text-indigo-300">Funky Todos</span></h1>
+        <p class="text-sm text-slate-300/80 mt-1">Drag & drop tasks between columns. Your changes auto-save locally.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="addTaskBtn" class="glass px-4 py-2 rounded-2xl text-sm font-medium shadow-lg hover:scale-105 transition-transform">+ New Task</button>
+        <button id="clearBtn" class="glass px-4 py-2 rounded-2xl text-sm font-medium shadow-lg hover:scale-105 transition-transform text-rose-200">Clear</button>
+      </div>
+    </header>
+
+    <section class="max-w-7xl mx-auto glass p-6 rounded-3xl shadow-2xl ring-1 ring-white/6">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <!-- Kanban columns -->
+        <template id="column-template">
+          <div class="flex flex-col h-[60vh]">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-lg font-semibold"></h2>
+              <span class="text-xs text-slate-300 opacity-80 px-2 py-1 rounded-md glass no-select"></span>
+            </div>
+            <div class="flex-1 overflow-auto p-2 space-y-3 drop-target rounded-xl" data-status="">
+              <!-- cards -> dynamic -->
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <footer class="max-w-7xl mx-auto mt-6 text-sm text-slate-400">Tip: Double-click a task to edit. Press Delete on keyboard while focused on a task to remove it.</footer>
+  </main>
+
+  <!-- Modal / Add Task -->
+  <div id="taskModal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-xl mx-4">
+      <div class="glass p-6 rounded-2xl shadow-2xl">
+        <h3 class="text-xl font-semibold mb-3">Create a task</h3>
+        <label class="block mb-2 text-sm">Title</label>
+        <input id="taskTitle" class="w-full p-3 rounded-lg bg-white/5 placeholder:text-slate-300 outline-none" placeholder="Write a short title...">
+        <label class="block mt-3 mb-2 text-sm">Description</label>
+        <textarea id="taskDesc" rows="4" class="w-full p-3 rounded-lg bg-white/5 placeholder:text-slate-300 outline-none" placeholder="Optional description"></textarea>
+        <div class="flex items-center justify-end gap-3 mt-4">
+          <select id="taskStatus" class="p-2 rounded-md glass">
+            <option value="backlog">📋 Backlog</option>
+            <option value="progress">⚡ In Progress</option>
+            <option value="review">👀 Review</option>
+            <option value="done">✅ Done</option>
+          </select>
+          <button id="cancelAdd" class="px-4 py-2 rounded-md glass">Cancel</button>
+          <button id="saveTask" class="px-4 py-2 rounded-md bg-indigo-500 hover:bg-indigo-600">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // App data and helpers
+    const COLUMNS = [
+      { key: 'backlog', title: '📋 Backlog' },
+      { key: 'progress', title: '⚡ In Progress' },
+      { key: 'review', title: '👀 Review' },
+      { key: 'done', title: '✅ Done' }
+    ];
+
+    const rootGrid = document.querySelector('section > div.grid');
+    const template = document.getElementById('column-template');
+
+    // Load or create default tasks
+    const STORAGE_KEY = 'auroro-kanban-v1';
+    let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (!state) {
+      state = {
+        tasks: [
+          { id: idGen(), title: 'Design hero section', desc: 'Make it bold and funky', status: 'backlog' },
+          { id: idGen(), title: 'Wireframe Kanban', desc: 'Sketch layout', status: 'progress' },
+          { id: idGen(), title: 'Write tests', desc: 'Add unit tests', status: 'review' },
+          { id: idGen(), title: 'Deploy to Netlify', desc: 'Push build & test', status: 'done' }
+        ]
+      };
+      save();
+    }
+
+    // build columns
+    COLUMNS.forEach(col => {
+      const clone = template.content.cloneNode(true);
+      const wrapper = clone.querySelector('div');
+      const titleEl = clone.querySelector('h2');
+      const countEl = clone.querySelector('span');
+      const listEl = clone.querySelector('.drop-target');
+      titleEl.textContent = col.title;
+      countEl.textContent = '0';
+      listEl.dataset.status = col.key;
+      // Add aesthetic background classes
+      listEl.classList.add(`kanban-${col.key}`);
+      rootGrid.appendChild(clone);
+    });
+
+    // render tasks
+    function render() {
+      const lists = document.querySelectorAll('.drop-target');
+      lists.forEach(list => list.innerHTML = '');
+
+      COLUMNS.forEach(col => {
+        const el = document.querySelector(`.drop-target[data-status="${col.key}"]`);
+        const tasks = state.tasks.filter(t => t.status === col.key);
+        el.innerHTML = tasks.map(t => taskCardHtml(t)).join('') || '<div class="p-3 text-slate-400/60 text-sm">No tasks</div>';
+        const countEl = el.parentElement.querySelector('span');
+        countEl.textContent = tasks.length;
+      });
+
+      attachCardListeners();
+      attachDropListeners();
+    }
+
+    function taskCardHtml(t) {
+      return `
+        <div class="card p-3 rounded-xl glass shadow-md cursor-grab no-select" draggable="true" data-id="${t.id}" tabindex="0">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex-1">
+              <div class="font-semibold">${escapeHtml(t.title)}</div>
+              ${t.desc ? `<div class="text-xs opacity-80 mt-1 text-slate-200/80">${escapeHtml(t.desc)}</div>` : ''}
+            </div>
+            <div class="flex items-center gap-2 ml-2">
+              <button class="edit text-xs px-2 py-1 rounded-md glass" title="Edit">✎</button>
+              <button class="del text-xs px-2 py-1 rounded-md glass text-rose-300" title="Delete">🗑</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+    // event wiring for drag
+    function attachCardListeners(){
+      document.querySelectorAll('.card').forEach(card => {
+        card.addEventListener('dragstart', onDragStart);
+        card.addEventListener('dblclick', onEditCard);
+        card.querySelector('.del')?.addEventListener('click', onDeleteCard);
+        card.querySelector('.edit')?.addEventListener('click', onEditCard);
+        card.addEventListener('keydown', (e)=>{ if (e.key === 'Delete') onDeleteCard(e); });
+      });
+    }
+
+    let draggingId = null;
+    function onDragStart(e){
+      const id = e.currentTarget.dataset.id;
+      draggingId = id;
+      e.dataTransfer.setData('text/plain', id);
+      e.dataTransfer.effectAllowed = 'move';
+      requestAnimationFrame(()=> e.currentTarget.classList.add('opacity-70'));
+    }
+
+    function attachDropListeners(){
+      document.querySelectorAll('.drop-target').forEach(list => {
+        list.removeEventListener('dragover', onDragOver);
+        list.removeEventListener('dragleave', onDragLeave);
+        list.removeEventListener('drop', onDrop);
+        list.addEventListener('dragover', onDragOver);
+        list.addEventListener('dragleave', onDragLeave);
+        list.addEventListener('drop', onDrop);
+      });
+    }
+
+    function onDragOver(e){
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      e.currentTarget.classList.add('dragover');
+    }
+    function onDragLeave(e){ e.currentTarget.classList.remove('dragover'); }
+
+    function onDrop(e){
+      e.preventDefault();
+      const id = e.dataTransfer.getData('text/plain') || draggingId;
+      const status = e.currentTarget.dataset.status;
+      const task = state.tasks.find(t=>t.id===id);
+      if (task && status) {
+        task.status = status;
+        save();
+        render();
+      }
+      e.currentTarget.classList.remove('dragover');
+      draggingId = null;
+    }
+
+    // CRUD actions
+    function onDeleteCard(e){
+      const el = e.currentTarget.closest('.card');
+      const id = el.dataset.id;
+      state.tasks = state.tasks.filter(t=>t.id!==id);
+      save(); render();
+    }
+
+    function onEditCard(e){
+      const el = e.currentTarget.closest ? e.currentTarget.closest('.card') : e.currentTarget.targetElement;
+      const id = el.dataset.id;
+      const task = state.tasks.find(t=>t.id===id);
+      openModal(task);
+    }
+
+    // modal handlers
+    const modal = document.getElementById('taskModal');
+    const addBtn = document.getElementById('addTaskBtn');
+    const cancelAdd = document.getElementById('cancelAdd');
+    const saveTaskBtn = document.getElementById('saveTask');
+    const clearBtn = document.getElementById('clearBtn');
+    const titleInput = document.getElementById('taskTitle');
+    const descInput = document.getElementById('taskDesc');
+    const statusSelect = document.getElementById('taskStatus');
+
+    let editingId = null;
+
+    addBtn.addEventListener('click', ()=> openModal());
+    cancelAdd.addEventListener('click', closeModal);
+    saveTaskBtn.addEventListener('click', saveFromModal);
+    clearBtn.addEventListener('click', ()=>{ if(confirm('Clear all tasks?')){ state.tasks=[]; save(); render(); } });
+
+    function openModal(task){
+      editingId = task?.id || null;
+      titleInput.value = task?.title || '';
+      descInput.value = task?.desc || '';
+      statusSelect.value = task?.status || 'backlog';
+      modal.classList.remove('hidden');
+      setTimeout(()=> titleInput.focus(), 80);
+    }
+    function closeModal(){ modal.classList.add('hidden'); editingId = null; }
+
+    function saveFromModal(){
+      const title = titleInput.value.trim();
+      if(!title){ alert('Title required'); titleInput.focus(); return; }
+      const desc = descInput.value.trim();
+      const status = statusSelect.value;
+      if (editingId) {
+        const task = state.tasks.find(t=>t.id===editingId);
+        if (task){ task.title = title; task.desc = desc; task.status = status; }
+      } else {
+        state.tasks.push({ id: idGen(), title, desc, status });
+      }
+      save(); render(); closeModal();
+    }
+
+    // persistence
+    function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+    // small helpers
+    function idGen(){ return Math.random().toString(36).slice(2,9); }
+
+    // keyboard: ESC close modal
+    window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeModal(); } });
+
+    // initial render
+    render();
+
+    // make cards focusable for keyboard delete
+    document.addEventListener('focusin', ()=> attachCardListeners());
+  </script>
+</body>
+</html>
